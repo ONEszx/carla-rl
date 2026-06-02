@@ -26,7 +26,7 @@ def convert_obs_dict_to_vector(obs_dict):
 
 # ===================== Environment Configuration =====================
 carla_params = {
-    'number_of_vehicles': 100,
+    'number_of_vehicles': 50,
     'number_of_walkers': 0,
     'dt': 0.1,  # time interval between two frames
     'ego_vehicle_filter': 'vehicle.tesla.model3',  # filter for defining ego vehicle
@@ -66,7 +66,9 @@ model = Diffusion_QL(
 )
 
 # ===================== Load Pretrained Model =====================
+#model_id = 200  # Model checkpoint ID to load
 model_id = 200  # Model checkpoint ID to load
+#save_path = './params_dql'  # Model checkpoint directory
 save_path = './params_dql'  # Model checkpoint directory
 model.load_model(save_path, id=model_id)
 print(f"Successfully loaded model ID {model_id}")

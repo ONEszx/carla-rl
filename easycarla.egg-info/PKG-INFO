@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: easycarla
+Version: 0.1.0
+Summary: A simple and easy-to-use OpenAI Gym environment based on the CARLA simulator.
+Author: SilverWings
+License-File: LICENSE
+Requires-Dist: gym

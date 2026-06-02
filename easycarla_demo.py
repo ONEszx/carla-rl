@@ -15,7 +15,7 @@ import numpy as np
 
 # Configure environment parameters
 params = {
-    'number_of_vehicles': 100,
+    'number_of_vehicles': 50,
     'number_of_walkers': 0,
     'dt': 0.1,  # time interval between two frames
     'ego_vehicle_filter': 'vehicle.tesla.model3',  # filter for defining ego vehicle
