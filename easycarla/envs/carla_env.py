@@ -47,8 +47,19 @@ class CarlaEnv(gym.Env):
     
         print('Connecting to Carla server...')
         client = carla.Client('localhost', params['port'])
-        client.set_timeout(10.0)
-        self.world = client.load_world(params['town'])
+        client.set_timeout(float(params.get('client_timeout', 30.0)))
+        self.client = client
+        self.world = client.get_world()
+        current_map_name = self.world.get_map().name
+        target_town = params.get('town')
+        use_current_world = bool(params.get('use_current_world', False))
+        if use_current_world:
+            print(f'Using current Carla world without reload: {current_map_name}')
+        elif target_town and not current_map_name.endswith(target_town):
+            print(f'Loading Carla world: {target_town} (current: {current_map_name})...')
+            self.world = client.load_world(target_town)
+        else:
+            print(f'Using current Carla world: {current_map_name}')
         self.world.set_weather(carla.WeatherParameters.ClearNoon)
         print('Connection established!')
     
