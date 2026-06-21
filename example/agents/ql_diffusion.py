@@ -67,6 +67,10 @@ class Diffusion_QL(object):
                  lr_decay=False,
                  lr_maxt=1000,
                  grad_norm=1.0,
+                 encoder=None,
+                 encoder_lr=1e-4,
+                 encoder_grad_norm=1.0,
+                 finetune_encoder=False,
                  ):
 
         self.model = MLP(state_dim=state_dim, action_dim=action_dim, device=device)
@@ -77,6 +81,16 @@ class Diffusion_QL(object):
 
         self.lr_decay = lr_decay
         self.grad_norm = grad_norm
+        self.encoder = encoder.to(device) if encoder is not None else None
+        self.finetune_encoder = finetune_encoder and self.encoder is not None
+        self.encoder_grad_norm = encoder_grad_norm
+        self.encoder_optimizer = None
+        if self.finetune_encoder:
+            self.encoder_optimizer = torch.optim.Adam(self.encoder.parameters(), lr=encoder_lr)
+        elif self.encoder is not None:
+            self.encoder.eval()
+            for param in self.encoder.parameters():
+                param.requires_grad = False
 
         self.step = 0
         self.step_start_ema = step_start_ema
@@ -106,6 +120,14 @@ class Diffusion_QL(object):
             return
         self.ema.update_model_average(self.ema_model, self.actor)
 
+    def _encode_state(self, state, detach=False):
+        if self.encoder is None:
+            return state
+        if detach:
+            with torch.no_grad():
+                return self.encoder(state)
+        return self.encoder(state)
+
     def train(self, replay_buffer, iterations, batch_size=100, log_writer=None):
 
         metric = {'bc_loss': [], 'ql_loss': [], 'actor_loss': [], 'critic_loss': []}
@@ -113,19 +135,26 @@ class Diffusion_QL(object):
             # Sample replay buffer / batch
             state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
+            if self.finetune_encoder:
+                encoded_state = self._encode_state(state)
+                encoded_next_state = self._encode_state(next_state, detach=True)
+            else:
+                encoded_state = self._encode_state(state, detach=self.encoder is not None)
+                encoded_next_state = self._encode_state(next_state, detach=self.encoder is not None)
+
             """ Q Training """
-            current_q1, current_q2 = self.critic(state, action)
+            current_q1, current_q2 = self.critic(encoded_state, action)
 
             if self.max_q_backup:
-                next_state_rpt = torch.repeat_interleave(next_state, repeats=10, dim=0)
+                next_state_rpt = torch.repeat_interleave(encoded_next_state, repeats=10, dim=0)
                 next_action_rpt = self.ema_model(next_state_rpt)
                 target_q1, target_q2 = self.critic_target(next_state_rpt, next_action_rpt)
                 target_q1 = target_q1.view(batch_size, 10).max(dim=1, keepdim=True)[0]
                 target_q2 = target_q2.view(batch_size, 10).max(dim=1, keepdim=True)[0]
                 target_q = torch.min(target_q1, target_q2)
             else:
-                next_action = self.ema_model(next_state)
-                target_q1, target_q2 = self.critic_target(next_state, next_action)
+                next_action = self.ema_model(encoded_next_state)
+                target_q1, target_q2 = self.critic_target(encoded_next_state, next_action)
                 target_q = torch.min(target_q1, target_q2)
 
             target_q = (reward + not_done * self.discount * target_q).detach()
@@ -133,16 +162,24 @@ class Diffusion_QL(object):
             critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
 
             self.critic_optimizer.zero_grad()
+            if self.encoder_optimizer is not None:
+                self.encoder_optimizer.zero_grad()
             critic_loss.backward()
             if self.grad_norm > 0:
                 critic_grad_norms = nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.grad_norm, norm_type=2)
+            if self.encoder_optimizer is not None and self.encoder_grad_norm > 0:
+                encoder_critic_grad_norm = nn.utils.clip_grad_norm_(self.encoder.parameters(), max_norm=self.encoder_grad_norm, norm_type=2)
             self.critic_optimizer.step()
+            if self.encoder_optimizer is not None:
+                self.encoder_optimizer.step()
 
             """ Policy Training """
-            bc_loss = self.actor.loss(action, state)
-            new_action = self.actor(state)
+            if self.finetune_encoder:
+                encoded_state = self._encode_state(state)
+            bc_loss = self.actor.loss(action, encoded_state)
+            new_action = self.actor(encoded_state)
 
-            q1_new_action, q2_new_action = self.critic(state, new_action)
+            q1_new_action, q2_new_action = self.critic(encoded_state, new_action)
             if np.random.uniform() > 0.5:
                 q_loss = - q1_new_action.mean() / q2_new_action.abs().mean().detach()
             else:
@@ -150,10 +187,16 @@ class Diffusion_QL(object):
             actor_loss = bc_loss + self.eta * q_loss
 
             self.actor_optimizer.zero_grad()
+            if self.encoder_optimizer is not None:
+                self.encoder_optimizer.zero_grad()
             actor_loss.backward()
-            if self.grad_norm > 0: 
+            if self.grad_norm > 0:
                 actor_grad_norms = nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=self.grad_norm, norm_type=2)
+            if self.encoder_optimizer is not None and self.encoder_grad_norm > 0:
+                encoder_actor_grad_norm = nn.utils.clip_grad_norm_(self.encoder.parameters(), max_norm=self.encoder_grad_norm, norm_type=2)
             self.actor_optimizer.step()
+            if self.encoder_optimizer is not None:
+                self.encoder_optimizer.step()
 
 
             """ Step Target network """
@@ -170,6 +213,9 @@ class Diffusion_QL(object):
                 if self.grad_norm > 0:
                     log_writer.add_scalar('Actor Grad Norm', actor_grad_norms.max().item(), self.step)
                     log_writer.add_scalar('Critic Grad Norm', critic_grad_norms.max().item(), self.step)
+                if self.encoder_optimizer is not None and self.encoder_grad_norm > 0:
+                    log_writer.add_scalar('Encoder Critic Grad Norm', encoder_critic_grad_norm.max().item(), self.step)
+                    log_writer.add_scalar('Encoder Actor Grad Norm', encoder_actor_grad_norm.max().item(), self.step)
                 log_writer.add_scalar('BC Loss', bc_loss.item(), self.step)
                 log_writer.add_scalar('QL Loss', q_loss.item(), self.step)
                 log_writer.add_scalar('Critic Loss', critic_loss.item(), self.step)
@@ -180,7 +226,7 @@ class Diffusion_QL(object):
             metric['ql_loss'].append(q_loss.item())
             metric['critic_loss'].append(critic_loss.item())
 
-        if self.lr_decay: 
+        if self.lr_decay:
             self.actor_lr_scheduler.step()
             self.critic_lr_scheduler.step()
 
@@ -188,6 +234,7 @@ class Diffusion_QL(object):
 
     def sample_action(self, state):
         state = torch.FloatTensor(state.reshape(1, -1)).to(self.device)
+        state = self._encode_state(state, detach=self.encoder is not None)
         state_rpt = torch.repeat_interleave(state, repeats=50, dim=0)
         with torch.no_grad():
             action = self.actor.sample(state_rpt)
