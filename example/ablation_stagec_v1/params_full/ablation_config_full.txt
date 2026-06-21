@@ -1,0 +1,10 @@
+ablation=full
+description=Encoder + priority-weighted sampling (full method)
+use_encoder=True
+use_priority=True
+encoder_ckpt=example/params_representation/encoder_final.pth
+priority_path=example/params_representation/priority_scores.npz
+priority_power=2.0
+num_epochs=10
+batch_size=100
+lr=0.0003

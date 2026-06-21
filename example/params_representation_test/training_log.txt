@@ -1,0 +1,21 @@
+State dim: 307
+Latent dim: 64
+Epochs: 10
+Batch size: 32
+Learning rate: 0.001
+Temperature: 0.07
+Neighbor window: 3
+Total steps: 60
+Device: cuda
+
+Loss per epoch:
+  Epoch 1: 1.652794
+  Epoch 2: 0.898327
+  Epoch 3: 0.736360
+  Epoch 4: 0.642650
+  Epoch 5: 0.495668
+  Epoch 6: 0.427596
+  Epoch 7: 0.328594
+  Epoch 8: 0.342505
+  Epoch 9: 0.280313
+  Epoch 10: 0.235144

@@ -1,0 +1,10 @@
+ablation=encoder_only
+description=Encoder trained but not used for priority sampling
+use_encoder=True
+use_priority=False
+encoder_ckpt=example/params_representation/encoder_final.pth
+priority_path=None
+priority_power=2.0
+num_epochs=10
+batch_size=100
+lr=0.0003

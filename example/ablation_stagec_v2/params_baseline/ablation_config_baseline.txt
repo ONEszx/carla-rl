@@ -1,0 +1,10 @@
+ablation=baseline
+description=Original Diffusion QL (no encoder, no priority)
+use_encoder=False
+use_priority=False
+encoder_ckpt=None
+priority_path=None
+priority_power=2.0
+num_epochs=10
+batch_size=100
+lr=0.0003
